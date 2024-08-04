@@ -14,3 +14,5 @@ name = "example-2"
 
 [dependencies]
 drillx = { path = "../../drillx" }
+rayon = "1.10"
+rand = "0.8"
