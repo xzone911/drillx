@@ -2,6 +2,12 @@ pub use equix;
 #[cfg(not(feature = "solana"))]
 use sha3::Digest;
 
+/// 64-byte aligned structure for seed data
+#[repr(align(64))]
+struct AlignedSeed {
+    data: [u8; 40],
+}
+
 /// Generates a new drillx hash from a challenge and nonce.
 #[inline(always)]
 pub fn hash(challenge: &[u8; 32], nonce: &[u8; 8]) -> Result<Hash, DrillxError> {
@@ -26,12 +32,12 @@ pub fn hash_with_memory(
     })
 }
 
-/// Concatenates a challenge and a nonce into a single buffer.
+/// Concatenates a challenge and a nonce into a cache-aligned buffer.
 #[inline(always)]
-pub fn seed(challenge: &[u8; 32], nonce: &[u8; 8]) -> [u8; 40] {
-    let mut result = [0; 40];
-    result[00..32].copy_from_slice(challenge);
-    result[32..40].copy_from_slice(nonce);
+pub fn seed(challenge: &[u8; 32], nonce: &[u8; 8]) -> AlignedSeed {
+    let mut result = AlignedSeed { data: [0; 40] };
+    result.data[0..32].copy_from_slice(challenge);
+    result.data[32..40].copy_from_slice(nonce);
     result
 }
 
@@ -39,7 +45,7 @@ pub fn seed(challenge: &[u8; 32], nonce: &[u8; 8]) -> [u8; 40] {
 #[inline(always)]
 fn digest(challenge: &[u8; 32], nonce: &[u8; 8]) -> Result<[u8; 16], DrillxError> {
     let seed = seed(challenge, nonce);
-    let solutions = equix::solve(&seed).map_err(|_| DrillxError::BadEquix)?;
+    let solutions = equix::solve(&seed.data).map_err(|_| DrillxError::BadEquix)?;
     if solutions.is_empty() {
         return Err(DrillxError::NoSolutions);
     }
@@ -58,13 +64,12 @@ fn digest_with_memory(
     let seed = seed(challenge, nonce);
     let equix = equix::EquiXBuilder::new()
         .runtime(equix::RuntimeOption::TryCompile)
-        .build(&seed)
+        .build(&seed.data)
         .map_err(|_| DrillxError::BadEquix)?;
     let solutions = equix.solve_with_memory(memory);
     if solutions.is_empty() {
         return Err(DrillxError::NoSolutions);
     }
-    // SAFETY: The equix solver guarantees that the first solution is always valid
     let solution = unsafe { solutions.get_unchecked(0) };
     Ok(solution.to_bytes())
 }
@@ -99,10 +104,10 @@ fn hashv(digest: &[u8; 16], nonce: &[u8; 8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// Returns true if the digest if valid equihash construction from the challenge and nonce.
+/// Returns true if the digest is a valid equihash construction from the challenge and nonce.
 pub fn is_valid_digest(challenge: &[u8; 32], nonce: &[u8; 8], digest: &[u8; 16]) -> bool {
     let seed = seed(challenge, nonce);
-    equix::verify_bytes(&seed, digest).is_ok()
+    equix::verify_bytes(&seed.data, digest).is_ok()
 }
 
 /// Returns the number of leading zeros on a 32 byte buffer.
